@@ -6,11 +6,13 @@ Fajl projekat_api.py mora biti u istom folderu (odatle se uzimaju lokacije,
 ORS klijent i pozadinska mapa).
 """
 from datetime import datetime, timedelta
+from rtree import index
 
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import math
 
 
 from projekat_api import (
@@ -21,6 +23,19 @@ from projekat_api import (
     kreiraj_pokretne_elemente_na_mapi,
     pripremi_trajektorije_dostave,
 )
+
+# Globalne promenljive za indekse
+index2d = None
+index3d = None
+poslednja = {}
+brojac3d = 0
+
+
+LAT = 44.8
+M_PO_STEPENU = 111320.0
+
+def u_metre(lon, lat):
+    return lon * M_PO_STEPENU * math.cos(math.radians(LAT)), lat * M_PO_STEPENU
 
 
 def azuriraj_prikaz(frejm):
@@ -131,7 +146,18 @@ def zadatak_1(lon, lat, poluprecnik_m=200):
     
     print(f"Zadatak 1: Dostavljači u krugu od poluprečnika {poluprecnik_m} m od tačke: lat {lat:.6f}, lon {lon:.6f}, su:")
 
-    # ovde ide pretraga dostavljača u krugu od poluprecnik_m metara oko tačke (lon, lat)
+    x,y = u_metre(lon, lat)
+    
+    results = list(index2d.intersection((x-poluprecnik_m, y-poluprecnik_m, x+poluprecnik_m, y+poluprecnik_m)))
+
+    filtered = []
+
+    for id in results:
+        p = poslednja[id]
+        dist = math.hypot(p["x"] - x, p["y"] - y)
+        if(dist <= poluprecnik_m):
+            filtered.append(id)
+
    
     # Ispisivanje rezultata, npr.:
     # Dostavljači u krugu od poluprečnika 200 m od tačke: lat 44.987654, lon 20.123456, su:
@@ -140,19 +166,36 @@ def zadatak_1(lon, lat, poluprecnik_m=200):
     # id: 12, status: stigao, lokacija: (lat 44.987654, lon 20.123456)
     # itd.  
 
+    if not filtered:
+            print("Nema dostavljača u krugu.")
+            return
+    
+    for id in filtered:
+            p = poslednja[id]
+            print(f"id: {id}, status: {p['status']}, lokacija: (lat {p['lat']:.6f}, lon {p['lon']:.6f})")
+
 
 def zadatak_2(lon, lat, k=3):
     """Zadatak 2: kojih k dostavljača je trenutno najbliže tački (lon, lat)?"""
     
     print(f"Zadatak 2: Najbliža {k} dostavljača od tačke: lat {lat:.6f}, lon {lon:.6f}, su:")
 
-    # ovde ide pretraga k najbližih dostavljača
+    x,y = u_metre(lon, lat)
+
+    location = (lon, lat) + (lon, lat)
+    
+    results = list(index2d.nearest(location,num_results=k))
 
     # Ispisivanje rezultata, npr.:
     # Najbližih 3 dostavljača od tačke: lat 44.987654, lon 20.123456, su:
     # id: 5, status: čeka, lokacija: (lat 44.987654, lon 20.123456), udaljenost: 150 m
     # id: 1, status: vozi, lokacija: (lat 44.987654, lon 20.123456), udaljenost: 180 m
     # id: 12, status: stigao, lokacija: (lat 44.987654, lon 20.123456), udaljenost: 190 m
+
+    for id in results:
+            p = poslednja[id]
+            dist =  math.hypot(p["x"] - x, p["y"] - y)
+            print(f"id: {id}, status: {p['status']}, lokacija: (lat {p['lat']:.6f}, lon {p['lon']:.6f}), udaljenost; {dist}")
     
 
 def zadatak_3(zapad, jug, istok, sever, vreme_od, vreme_do):
@@ -191,8 +234,22 @@ def azuriraj_lokacije_dostavljaca(pozicije_dostavljaca:list):
     # Primer jednog zapisa za poziciju dostavljača: 
     # {"id": 1, "vreme": datetime(2026, 1, 1, 12, 0, 10), "lon": 20.123456, "lat": 44.987654, "status": "vozi"}
 
+    global index3d, brojac3d
 
-    pass
+    for z in pozicije_dostavljaca:
+        x,y = u_metre(z["lon"], z["lat"])
+        t = (z["vreme"] - POCETAK_SIMULACIJE).total_seconds()
+        p = poslednja[z["id"]]
+
+        if(x,y) != (p["x"],p["y"]):
+            index2d.delete(z["id"], (p["x"], p["y"], p["x"], p["y"]))
+            index2d.insert(z["id"], (x, y, x, y))
+
+        if p["t"] is None or t > p["t"]:
+            index3d.insert(brojac3d, (x, y, t, x, y, t), obj=(z["id"], z["status"], z["lon"], z["lat"]))
+            brojac3d += 1
+        
+        p.update(x=x, y=y, lon=z["lon"], lat=z["lat"], status=z["status"], t=t)
 
 def inicijalizacija_indeksa(dostavljaci):
     """Ovde treba da se incijalizuje prostorni / prostorno-vremenski indeks 
@@ -203,7 +260,27 @@ def inicijalizacija_indeksa(dostavljaci):
     # "trenutni_lat" – trenutna geografska širina (float)
     # "status" – trenutni status dostavljača: "ceka", "vozi" ili "stigao"
     # itd. 
+    global index2d, index3d, poslednja, brojac3d
+    
+    index2d = index.Index()
 
+    p = index.Property()
+    p.dimension = 3
+    index3d = index.Index(properties=p)
+
+    poslednja = {}
+    brojac3d = 0
+
+    for d in dostavljaci:
+        x,y = u_metre(d["trenutni_lon"], d["trenutni_lat"])
+        index2d.insert(d["id"], (x, y, x, y))
+
+        poslednja[d["id"]] = {
+            "x": x, "y": y,
+            "lon": d["trenutni_lon"], "lat": d["trenutni_lat"],
+            "status": d["status"],
+            "t": None,
+        }
 
 
 # ---------------------------------------------------------------------------
