@@ -182,7 +182,7 @@ def zadatak_2(lon, lat, k=3):
 
     x,y = u_metre(lon, lat)
 
-    location = (lon, lat) + (lon, lat)
+    location = (x, y) + (x, y)
     
     results = list(index2d.nearest(location,num_results=k))
 
@@ -193,9 +193,10 @@ def zadatak_2(lon, lat, k=3):
     # id: 12, status: stigao, lokacija: (lat 44.987654, lon 20.123456), udaljenost: 190 m
 
     for id in results:
-            p = poslednja[id]
-            dist =  math.hypot(p["x"] - x, p["y"] - y)
-            print(f"id: {id}, status: {p['status']}, lokacija: (lat {p['lat']:.6f}, lon {p['lon']:.6f}), udaljenost; {dist}")
+        p = poslednja[id]
+        dist =  math.hypot(p["x"] - x, p["y"] - y)
+        print(f"id: {id}, status: {p['status']}, lokacija: (lat {p['lat']:.6f}, lon {p['lon']:.6f}), udaljenost: {dist:.0f} m")
+
     
 
 def zadatak_3(zapad, jug, istok, sever, vreme_od, vreme_do):
@@ -205,8 +206,29 @@ def zadatak_3(zapad, jug, istok, sever, vreme_od, vreme_do):
     print(f"Zadatak 3: Dostavljači koji su u poslednja {INTERVAL_MIN} minuta bili u rejonu: lon {zapad:.6f} – {istok:.6f}, lat {jug:.6f} – {sever:.6f}, "
           f"vreme {vreme_od:%H:%M:%S} – {vreme_do:%H:%M:%S}")
     
-    # ovde ide pretraga dostavljača 
+    x_zapad, y_jug = u_metre(zapad, jug)
+    x_istok, y_sever = u_metre(istok, sever)
 
+    t_od = (vreme_od - POCETAK_SIMULACIJE).total_seconds()
+    t_do = (vreme_do - POCETAK_SIMULACIJE).total_seconds()
+
+    results = list(index3d.intersection((x_zapad, y_jug, t_od, x_istok, y_sever, t_do), objects=True))
+
+    poslednji_u_oblasti = {}
+
+    for item in results:
+        id, status, lon_z, lat_z = item.object
+        t = item.bbox[2] # bbox = [x, y, t, x, y, t] - bbox[2] je t
+        if id not in poslednji_u_oblasti or t > poslednji_u_oblasti[id][0]:
+            poslednji_u_oblasti[id] = (t, status, lon_z, lat_z)
+
+    if not poslednji_u_oblasti:
+        print("Nema dostavljača u oblasti u zadatom intervalu.")
+        return
+
+    for id, (t, status, lon_z, lat_z) in poslednji_u_oblasti.items():
+        vreme_z = POCETAK_SIMULACIJE + timedelta(seconds=t) # Vraćanje nazad u datetime radi ispisa vremena
+        print(f"id: {id}, status: {status}, lokacija: (lat {lat_z:.6f}, lon {lon_z:.6f}), vreme: {vreme_z:%H:%M:%S}")
     # Ispisivanje rezultata, npr.:
     # Dostavljači koji su u poslednjih 2 minuta bili u rejonu:
     # Jedan red po dostavljaču, sa poslednjom pozicijom u oblasti
